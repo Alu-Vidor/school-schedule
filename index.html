@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>School Survivor</title>
+  <style>
+    body{margin:0;background:#0f1116;color:#f1f1f1;font-family:Arial,sans-serif}
+    .wrap{max-width:1100px;margin:0 auto;padding:16px}
+    .top{display:grid;grid-template-columns:320px 1fr;gap:16px}
+    .panel{background:#1a1f2b;border:1px solid #2b3346;border-radius:12px;padding:12px}
+    #game{width:100%;max-width:760px;aspect-ratio:16/9;background:#0a0c11;border-radius:12px;border:1px solid #2b3346}
+    button{background:#2b72ff;color:white;border:none;padding:8px 12px;border-radius:8px;cursor:pointer}
+    button:disabled{opacity:.5;cursor:not-allowed}
+    .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+    .card{background:#20283a;padding:10px;border:1px solid #354260;border-radius:10px;cursor:pointer}
+    .hidden{display:none}
+    .row{display:flex;gap:8px;flex-wrap:wrap}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>School Survivor</h1>
+  <div class="top">
+    <div class="panel">
+      <h3>Выбор персонажа</h3>
+      <div class="row">
+        <button id="pick-knight">Рыцарь</button>
+        <button id="pick-mage">Маг</button>
+      </div>
+      <hr>
+      <p>HP: <span id="hp">0</span></p>
+      <p>Уровень: <span id="level">1</span></p>
+      <p>XP: <span id="xp">0</span>/<span id="xpNeed">10</span></p>
+      <p>Время: <span id="time">0</span> сек</p>
+      <p>Волна: <span id="wave">1</span></p>
+      <button id="restart">Новая игра</button>
+    </div>
+    <canvas id="game" width="960" height="540"></canvas>
+  </div>
+
+  <div id="levelup" class="panel hidden">
+    <h3>Повышение уровня — выбери усиление</h3>
+    <div id="choices" class="cards"></div>
+  </div>
+</div>
+<script src="assets/sprites-data.js"></script>
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const ui = {
+ hp: hp, level: level, xp: xp, xpNeed: xpNeed, time: time, wave: wave,
+ levelup: levelup, choices: choices,
+};
+const state={running:false, hero:null, bullets:[], enemies:[], pickups:[], keys:{}, t:0, wave:1, spawnTimer:0, shotTimer:0, levelChoicesOpen:false};
+const chars={
+ knight:{name:'Рыцарь', hp:140, speed:180, damage:14, fireRate:0.45, range:260, color:'#6a8dff'},
+ mage:{name:'Маг', hp:100, speed:200, damage:18, fireRate:0.35, range:320, color:'#be73ff'},
+};
+const upgrades=[
+ {name:'+20 HP', apply:h=>h.maxHp+=20},
+ {name:'+3 урона', apply:h=>h.damage+=3},
+ {name:'+15% скорость', apply:h=>h.speed*=1.15},
+ {name:'-12% перезарядка', apply:h=>h.fireRate*=0.88},
+ {name:'+35 дальность', apply:h=>h.range+=35},
+ {name:'+10% размер снаряда', apply:h=>h.bulletSize*=1.1},
+];
+function start(type){const c=chars[type]; state.running=true; state.t=0; state.wave=1; state.enemies=[]; state.bullets=[]; state.pickups=[]; state.levelChoicesOpen=false; ui.levelup.classList.add('hidden'); state.hero={x:480,y:270,vx:0,vy:0,level:1,xp:0,xpNeed:10,maxHp:c.hp,hp:c.hp,speed:c.speed,damage:c.damage,fireRate:c.fireRate,range:c.range,bulletSize:1,color:c.color};}
+function spawnEnemy(){const edge=Math.floor(Math.random()*4); let x,y; if(edge===0){x=Math.random()*960;y=-20}else if(edge===1){x=980;y=Math.random()*540}else if(edge===2){x=Math.random()*960;y=560}else{ x=-20;y=Math.random()*540 }
+ const scale=1+state.t/75; state.enemies.push({x,y,hp:22*scale,speed:60*scale,damage:8*scale,r:12});}
+function nearestEnemy(){let best=null,d=1e9; for(const e of state.enemies){const dd=(e.x-state.hero.x)**2+(e.y-state.hero.y)**2; if(dd<d){d=dd;best=e;}} return best;}
+function shoot(dt){state.shotTimer-=dt; if(state.shotTimer>0) return; const e=nearestEnemy(); if(!e) return; const dx=e.x-state.hero.x,dy=e.y-state.hero.y; const dist=Math.hypot(dx,dy); if(dist>state.hero.range) return; const sp=420; state.bullets.push({x:state.hero.x,y:state.hero.y,vx:dx/dist*sp,vy:dy/dist*sp,dmg:state.hero.damage,r:4*state.hero.bulletSize}); state.shotTimer=state.hero.fireRate;}
+function gainXP(amount){const h=state.hero; h.xp+=amount; while(h.xp>=h.xpNeed){h.xp-=h.xpNeed; h.level++; h.xpNeed=Math.floor(h.xpNeed*1.35); openLevelChoices();}}
+function openLevelChoices(){state.levelChoicesOpen=true; state.running=false; ui.levelup.classList.remove('hidden'); ui.choices.innerHTML='';
+ const pool=[...upgrades].sort(()=>Math.random()-.5).slice(0,3); pool.forEach(u=>{const d=document.createElement('div'); d.className='card'; d.textContent=u.name; d.onclick=()=>{u.apply(state.hero); state.hero.hp=Math.min(state.hero.hp,state.hero.maxHp); state.levelChoicesOpen=false; ui.levelup.classList.add('hidden'); state.running=true;}; ui.choices.appendChild(d);});}
+function update(dt){if(!state.running||!state.hero) return; state.t+=dt; state.wave=1+Math.floor(state.t/25); state.spawnTimer-=dt; if(state.spawnTimer<=0){for(let i=0;i<Math.min(6,1+Math.floor(state.wave/2));i++) spawnEnemy(); state.spawnTimer=Math.max(0.25,1.4-state.wave*0.05);} const h=state.hero; const ax=(state.keys['d']?1:0)-(state.keys['a']?1:0); const ay=(state.keys['s']?1:0)-(state.keys['w']?1:0); const n=Math.hypot(ax,ay)||1; h.x+=ax/n*h.speed*dt; h.y+=ay/n*h.speed*dt; h.x=Math.max(10,Math.min(950,h.x)); h.y=Math.max(10,Math.min(530,h.y));
+ shoot(dt);
+ for(const b of state.bullets){b.x+=b.vx*dt;b.y+=b.vy*dt;}
+ state.bullets=state.bullets.filter(b=>b.x>-20&&b.x<980&&b.y>-20&&b.y<560);
+ for(const e of state.enemies){const dx=h.x-e.x,dy=h.y-e.y,dist=Math.hypot(dx,dy)||1; e.x+=dx/dist*e.speed*dt; e.y+=dy/dist*e.speed*dt; if(dist<e.r+10) h.hp-=e.damage*dt;}
+ for(const b of state.bullets){for(const e of state.enemies){const d=Math.hypot(b.x-e.x,b.y-e.y); if(d<e.r+b.r){e.hp-=b.dmg; b.x=-999; break;}}}
+ const dead=[]; state.enemies=state.enemies.filter(e=>{if(e.hp<=0){dead.push(e); return false;} return true;}); dead.forEach(e=>state.pickups.push({x:e.x,y:e.y,r:5,xp:3}));
+ state.pickups=state.pickups.filter(p=>{const d=Math.hypot(h.x-p.x,h.y-p.y); if(d<14){gainXP(p.xp); return false;} return true;});
+ if(h.hp<=0){state.running=false; alert('Поражение! Нажми "Новая игра".');}
+}
+function draw(){ctx.clearRect(0,0,960,540); const grad=ctx.createLinearGradient(0,0,0,540); grad.addColorStop(0,'#2b3b2d'); grad.addColorStop(1,'#171b22'); ctx.fillStyle=grad; ctx.fillRect(0,0,960,540);
+ for(const p of state.pickups){ctx.fillStyle='#44f1a6';ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);ctx.fill();}
+ for(const e of state.enemies){ctx.fillStyle='#b84f4f';ctx.beginPath();ctx.arc(e.x,e.y,e.r,0,Math.PI*2);ctx.fill();}
+ for(const b of state.bullets){ctx.fillStyle='#f9dd7a';ctx.beginPath();ctx.arc(b.x,b.y,b.r,0,Math.PI*2);ctx.fill();}
+ if(state.hero){ctx.fillStyle=state.hero.color;ctx.beginPath();ctx.arc(state.hero.x,state.hero.y,10,0,Math.PI*2);ctx.fill();}
+ if(state.hero){ui.hp.textContent=Math.max(0,Math.floor(state.hero.hp));ui.level.textContent=state.hero.level;ui.xp.textContent=state.hero.xp;ui.xpNeed.textContent=state.hero.xpNeed;ui.time.textContent=Math.floor(state.t);ui.wave.textContent=state.wave;}
+}
+let last=performance.now(); function loop(now){const dt=Math.min(0.033,(now-last)/1000); last=now; update(dt); draw(); requestAnimationFrame(loop);} requestAnimationFrame(loop);
+addEventListener('keydown',e=>state.keys[e.key.toLowerCase()]=true); addEventListener('keyup',e=>state.keys[e.key.toLowerCase()]=false);
+document.getElementById('pick-knight').onclick=()=>start('knight'); document.getElementById('pick-mage').onclick=()=>start('mage'); document.getElementById('restart').onclick=()=>state.hero?start(state.hero.color===chars.knight.color?'knight':'mage'):start('knight');
+</script>
+</body>
+</html>
